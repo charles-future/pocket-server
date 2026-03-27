@@ -1,0 +1,151 @@
+name: Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'README.md'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Override version (e.g., v1.0.7)'
+        required: false
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            TARGET_OS: darwin
+            TARGET_ARCH: arm64
+          - os: macos-13
+            TARGET_OS: darwin
+            TARGET_ARCH: x64
+          - os: ubuntu-latest
+            TARGET_OS: linux
+            TARGET_ARCH: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install script deps
+        run: npm install
+      - name: Build artifacts (no upload)
+        run: node scripts/release.mjs
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          TARGET_OS: ${{ matrix.TARGET_OS }}
+          TARGET_ARCH: ${{ matrix.TARGET_ARCH }}
+          PUBLISH_MODE: artifacts-only
+          METADATA_PATH: ${{ github.workspace }}/meta-${{ matrix.TARGET_OS }}-${{ matrix.TARGET_ARCH }}.json
+          SKIP_LINT: '1'
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tar-${{ matrix.TARGET_OS }}-${{ matrix.TARGET_ARCH }}
+          path: pocket-server-${{ matrix.TARGET_OS }}-${{ matrix.TARGET_ARCH }}.tar.gz
+          if-no-files-found: error
+      - name: Upload sha256 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sha-${{ matrix.TARGET_OS }}-${{ matrix.TARGET_ARCH }}
+          path: pocket-server-${{ matrix.TARGET_OS }}-${{ matrix.TARGET_ARCH }}.tar.gz.sha256
+          if-no-files-found: error
+      - name: Upload metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meta-${{ matrix.TARGET_OS }}-${{ matrix.TARGET_ARCH }}
+          path: ${{ github.workspace }}/meta-${{ matrix.TARGET_OS }}-${{ matrix.TARGET_ARCH }}.json
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install tools
+        run: echo "No extra tools required"
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          path: artifacts
+      - name: Prepare release version
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          tag=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' || true)
+          if [[ "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            major=${BASH_REMATCH[1]}; minor=${BASH_REMATCH[2]}; patch=${BASH_REMATCH[3]}
+            next=v${major}.${minor}.$((patch+1))
+          else
+            next=v1.0.0
+          fi
+          echo "version=$next" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Create or update GitHub Release
+        run: |
+          gh release view "${{ steps.ver.outputs.version }}" >/dev/null 2>&1 || gh release create "${{ steps.ver.outputs.version }}" -t "${{ steps.ver.outputs.version }}" -n "Automated release"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Upload assets sequentially
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          ver="${{ steps.ver.outputs.version }}"
+          for combo in "darwin arm64" "darwin x64" "linux x64"; do
+            os=$(echo "$combo" | awk '{print $1}')
+            arch=$(echo "$combo" | awk '{print $2}')
+            tgz="artifacts/tar-${os}-${arch}/pocket-server-${os}-${arch}.tar.gz" || true
+            sha="artifacts/sha-${os}-${arch}/pocket-server-${os}-${arch}.tar.gz.sha256" || true
+            meta="artifacts/meta-${os}-${arch}/meta-${os}-${arch}.json" || true
+            if [ -f "$tgz" ] && [ -f "$sha" ] && [ -f "$meta" ]; then
+              echo "[publish] Uploading $tgz ..."
+              gh release upload "$ver" "$tgz" --clobber
+              gh release upload "$ver" "$sha" --clobber
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Generate latest.json and upload
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          ver="${{ steps.ver.outputs.version }}"
+          nodeVer=22.18.0
+          make_entry(){
+            os="$1"; arch="$2";
+            url="https://github.com/$repo/releases/download/$ver/pocket-server-${os}-${arch}.tar.gz"
+            shaPath="artifacts/sha-${os}-${arch}/pocket-server-${os}-${arch}.tar.gz.sha256"
+            if [ -f "$shaPath" ]; then sha=$(cat "$shaPath"); else sha=""; fi
+            printf '"%s-%s": {"url": "%s", "sha256": "%s"}' "$os" "$arch" "$url" "$sha"
+          }
+          files=$(printf '{%s,%s,%s}' \
+            "$(make_entry darwin arm64)" \
+            "$(make_entry darwin x64)" \
+            "$(make_entry linux x64)")
+          printf '{"version":"%s","node":"%s","files":%s}' "$ver" "$nodeVer" "$files" > latest.json
+          gh release upload "$ver" latest.json --clobber
+          echo "Latest manifest uploaded: https://github.com/$repo/releases/download/$ver/latest.json"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+

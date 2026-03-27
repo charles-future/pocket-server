@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest an idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What problem does this solve?
+      placeholder: Short, outcome-focused description.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the approach, API, or UX.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, prior art, alternatives considered.
+
