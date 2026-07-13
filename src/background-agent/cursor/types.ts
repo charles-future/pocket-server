@@ -51,4 +51,3 @@ export interface CloudAgentRecord {
   updatedAt: string;
   ownerClientId?: string;
 }
-
