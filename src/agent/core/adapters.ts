@@ -8,4 +8,3 @@ export interface ProviderAdapter {
   // Generic dispatcher used by the orchestrator to forward client messages
   send(message: any, apiKey: string, onMessage: (m: any) => void): Promise<void>;
 }
-
