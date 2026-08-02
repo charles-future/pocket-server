@@ -8,4 +8,3 @@ export function resolvePath(baseDir: string, path: string): string {
   return resolve(baseDir, path);
 }
 
-
