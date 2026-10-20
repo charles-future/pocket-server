@@ -19,4 +19,3 @@ export class Orchestrator {
     await this.adapter.send(message, this.apiKey, onMessage);
   }
 }
-
