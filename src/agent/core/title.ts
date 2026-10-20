@@ -61,4 +61,3 @@ function generateFallbackTitle(message: string): string {
   const words = (message || '').split(' ').filter(Boolean).slice(0, 3);
   return words.length > 0 ? words.join(' ') : 'New Chat';
 }
-
