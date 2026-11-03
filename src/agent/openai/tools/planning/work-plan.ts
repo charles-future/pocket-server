@@ -75,4 +75,3 @@ export const run: ToolHandler<WorkPlanInput, any> = async (input, { sessionId })
   return 'Unknown work_plan command';
 };
 
-
