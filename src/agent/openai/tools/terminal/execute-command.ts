@@ -29,4 +29,3 @@ export const run: ToolHandler<{ command: string; cwd?: string; timeout_ms?: numb
   return result.value;
 };
 
-
