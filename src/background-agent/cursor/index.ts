@@ -18,4 +18,3 @@ export type { StructuredDiff } from './github';
 // Export types for external use
 export type { CursorAgentMinimal, CursorConversationMessage } from './types';
 
-
